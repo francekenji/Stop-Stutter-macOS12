@@ -1,4 +1,4 @@
-> **macOS 12 backport.** This copy builds for macOS 12 Monterey and later (no Liquid Glass). Start with [MACOS12.md](MACOS12.md).
+> **macOS 12 backport.** This copy builds for macOS 12 Monterey and later (no Liquid Glass).
 
 <div align="center">
 
