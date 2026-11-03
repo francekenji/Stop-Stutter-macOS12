@@ -1,4 +1,4 @@
-> **macOS 12 backport.** This copy builds for macOS 12 Monterey and later (no Liquid Glass).
+> **macOS 12 backport.** This copy builds for macOS 12 Monterey and later (WARNING: made with Claude AI).
 
 <div align="center">
 
