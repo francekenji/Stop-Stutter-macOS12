@@ -1,0 +1,71 @@
+name: Build macOS 12 DMG
+# Builds a macOS 12-compatible Stop Stutter.dmg on a GitHub runner, so no Mac with Xcode is needed.
+# Run it manually: Actions > Build macOS 12 DMG > Run workflow. The disk image is the run's artifact.
+# It signs with a throwaway self-signed certificate (no Apple account): Gatekeeper will ask you to
+# right-click > Open the first time. See MACOS12.md.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dmg:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: xcodebuild -version && swift --version
+      - name: Run policy and recovery tests
+        run: swift test
+      - name: Create a self-signed code-signing identity
+        id: identity
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/stopstutter.keychain-db"
+          password="$(uuidgen)"
+          cat > "$RUNNER_TEMP/cert.conf" <<'EOF'
+          [req]
+          distinguished_name = dn
+          x509_extensions = ext
+          prompt = no
+          [dn]
+          CN = Stop Stutter Local
+          [ext]
+          basicConstraints = critical,CA:false
+          keyUsage = critical,digitalSignature
+          extendedKeyUsage = critical,codeSigning
+          EOF
+          /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+            -keyout "$RUNNER_TEMP/key.pem" -out "$RUNNER_TEMP/cert.pem" -config "$RUNNER_TEMP/cert.conf"
+          /usr/bin/openssl pkcs12 -export -inkey "$RUNNER_TEMP/key.pem" -in "$RUNNER_TEMP/cert.pem" \
+            -out "$RUNNER_TEMP/cert.p12" -passout "pass:$password"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$password" -A -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem"
+          hash="$(security find-identity -p codesigning "$keychain" | awk '/Stop Stutter Local/ {print $2; exit}')"
+          test -n "$hash"
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+      - name: Build universal app
+        env:
+          UNIVERSAL: '1'
+          SIGNING_IDENTITY: ${{ steps.identity.outputs.hash }}
+        run: ./scripts/build.sh
+      - name: Make the disk image
+        env:
+          SIGNING_IDENTITY: ${{ steps.identity.outputs.hash }}
+        run: ./scripts/make-dmg.sh
+      - name: Validate bundle
+        run: |
+          plutil -lint "build/Stop Stutter.app/Contents/Info.plist"
+          plutil -lint "build/Stop Stutter.app/Contents/Resources/io.github.burakgon.StopStutter.Helper.plist"
+          lipo -archs "build/Stop Stutter.app/Contents/MacOS/StopStutter"
+          xcrun vtool -show-build "build/Stop Stutter.app/Contents/MacOS/StopStutter" | grep -E "minos|sdk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StopStutter-macOS12-dmg
+          path: |
+            dist/*.dmg
+            dist/*.sha256
