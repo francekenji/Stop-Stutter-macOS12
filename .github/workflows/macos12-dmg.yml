@@ -12,6 +12,8 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
       - name: Show toolchain
         run: xcodebuild -version && swift --version
       - name: Run policy and recovery tests
